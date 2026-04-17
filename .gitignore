@@ -26,3 +26,4 @@ sc-haul.zip
 *.njsproj
 *.sln
 *.sw?
+.env
