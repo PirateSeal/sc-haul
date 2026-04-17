@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
-import { PlusIcon, XIcon } from 'lucide-react';
+import { MinusIcon, PlusIcon, XIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { getCachedCommodities } from '@/services/db';
 import type { Commodity } from '@/services/db';
@@ -16,7 +16,6 @@ import {
   FieldLabel,
   FieldTitle,
 } from '@/components/ui/field';
-import { Input } from '@/components/ui/input';
 import {
   InputGroup,
   InputGroupAddon,
@@ -39,6 +38,89 @@ const newGroup = (): LocationGroup => ({ id: uid(), location: null, entries: [ne
 
 function hasPositiveScu(value: string) {
   return (parseInt(value, 10) || 0) > 0;
+}
+
+function sanitizeNumericInput(value: string) {
+  return value.replace(/\D/g, '');
+}
+
+function parseNumericInput(value: string) {
+  return parseInt(value, 10) || 0;
+}
+
+function stepNumericInput(value: string, delta: number, min = 0) {
+  return String(Math.max(min, parseNumericInput(value) + delta));
+}
+
+function NumericStepperField({
+  id,
+  value,
+  onChange,
+  step = 1,
+  min = 0,
+  placeholder,
+  unit,
+  invalid,
+  ariaLabel,
+  required,
+}: {
+  id?: string;
+  value: string;
+  onChange: (value: string) => void;
+  step?: number;
+  min?: number;
+  placeholder?: string;
+  unit: string;
+  invalid?: boolean;
+  ariaLabel: string;
+  required?: boolean;
+}) {
+  const numericValue = parseNumericInput(value);
+  const canDecrement = numericValue > min;
+
+  return (
+    <InputGroup>
+      <InputGroupInput
+        id={id}
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        value={value}
+        onChange={(event) => onChange(sanitizeNumericInput(event.target.value))}
+        placeholder={placeholder}
+        aria-invalid={invalid || undefined}
+        aria-label={ariaLabel}
+        required={required}
+        className="text-right tabular-nums"
+      />
+      <InputGroupAddon align="inline-start">
+        <InputGroupButton
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          onClick={() => onChange(stepNumericInput(value, -step, min))}
+          disabled={!canDecrement}
+          aria-label={`Decrease ${ariaLabel}`}
+          className="text-muted-foreground hover:text-foreground"
+        >
+          <MinusIcon />
+        </InputGroupButton>
+      </InputGroupAddon>
+      <InputGroupAddon align="inline-end">
+        <InputGroupText className="font-medium">{unit}</InputGroupText>
+        <InputGroupButton
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          onClick={() => onChange(stepNumericInput(value, step, min))}
+          aria-label={`Increase ${ariaLabel}`}
+          className="text-muted-foreground hover:text-foreground"
+        >
+          <PlusIcon />
+        </InputGroupButton>
+      </InputGroupAddon>
+    </InputGroup>
+  );
 }
 
 function toCommodityOption(commodity: Commodity): CommodityOption {
@@ -108,22 +190,16 @@ function CargoEntryRow({
               invalid={commodityInvalid}
             />
           </div>
-          <div className="w-28 shrink-0">
-            <InputGroup>
-              <InputGroupInput
-                type="number"
-                min="1"
-                value={entry.scu}
-                onChange={(event) => onScuChange(event.target.value)}
-                placeholder="0"
-                aria-invalid={scuInvalid || undefined}
-                aria-label="SCU amount"
-                className="text-right"
-              />
-              <InputGroupAddon align="inline-end">
-                <InputGroupText>SCU</InputGroupText>
-              </InputGroupAddon>
-            </InputGroup>
+          <div className="w-40 shrink-0">
+            <NumericStepperField
+              value={entry.scu}
+              onChange={onScuChange}
+              min={1}
+              placeholder="16"
+              unit="SCU"
+              invalid={scuInvalid}
+              ariaLabel="SCU amount"
+            />
           </div>
           {canRemove && (
             <InputGroupButton
@@ -698,14 +774,15 @@ export function AddMissionForm({
 
         <Field>
           <FieldLabel htmlFor="reward">Contract Reward (aUEC)</FieldLabel>
-          <Input
+          <NumericStepperField
             id="reward"
-            type="number"
             value={reward}
-            onChange={(event) => setReward(event.target.value)}
-            min="0"
+            onChange={setReward}
+            step={1000}
+            placeholder="45,000"
+            unit="aUEC"
+            ariaLabel="Contract Reward (aUEC)"
             required
-            placeholder="0"
           />
         </Field>
       </FieldGroup>
