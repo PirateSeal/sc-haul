@@ -110,13 +110,104 @@ describe('clearMissions', () => {
 describe('updateShip', () => {
   it('sets the ship config', () => {
     useHaulStore.getState().updateShip({ name: 'Cutlass Black', maxScu: 46 });
-    expect(useHaulStore.getState().ship).toEqual({ name: 'Cutlass Black', maxScu: 46 });
+    expect(useHaulStore.getState().ship).toEqual({
+      name: 'Cutlass Black',
+      maxScu: 46,
+      manufacturer: null,
+      source: 'custom',
+    });
   });
 
   it('replaces an existing ship config', () => {
     useHaulStore.getState().updateShip({ name: 'Cutlass Black', maxScu: 46 });
     useHaulStore.getState().updateShip({ name: 'Freelancer MAX', maxScu: 122 });
     expect(useHaulStore.getState().ship!.name).toBe('Freelancer MAX');
+  });
+});
+
+describe('fleet roster', () => {
+  it('dedupes UEX ships by vehicle id', () => {
+    useHaulStore.getState().upsertFleetShip({
+      name: 'C2 Hercules',
+      maxScu: 696,
+      source: 'uex',
+      uexVehicleId: 77,
+      manufacturer: 'Crusader Industries',
+    });
+
+    useHaulStore.getState().upsertFleetShip({
+      name: 'Hercules Starlifter C2',
+      maxScu: 696,
+      source: 'uex',
+      uexVehicleId: 77,
+      manufacturer: 'Crusader Industries',
+    });
+
+    expect(useHaulStore.getState().fleet).toHaveLength(1);
+    expect(useHaulStore.getState().fleet[0].name).toBe('Hercules Starlifter C2');
+  });
+
+  it('removes UEX ships by vehicle id', () => {
+    useHaulStore.getState().upsertFleetShip({
+      name: 'C2 Hercules',
+      maxScu: 696,
+      source: 'uex',
+      uexVehicleId: 77,
+      manufacturer: 'Crusader Industries',
+    });
+
+    useHaulStore.getState().removeFleetShip({
+      name: 'Different Name',
+      maxScu: 696,
+      source: 'uex',
+      uexVehicleId: 77,
+      manufacturer: 'Crusader Industries',
+    });
+
+    expect(useHaulStore.getState().fleet).toHaveLength(0);
+  });
+
+  it('migrates legacy saved ships to custom source metadata', async () => {
+    useHaulStore.setState({
+      missions: [],
+      completedMissions: [],
+      doneLegs: new Set<string>(),
+      ship: null,
+      fleet: [],
+      startLocationName: '',
+      gaConfig: DEFAULT_GA,
+    });
+
+    localStorage.setItem(
+      'haul-storage',
+      JSON.stringify({
+        state: {
+          missions: [],
+          completedMissions: [],
+          doneLegs: [],
+          ship: { name: 'Cutlass Black', maxScu: 46 },
+          fleet: [{ name: 'Freelancer MAX', maxScu: 122 }],
+          startLocationName: '',
+          gaConfig: DEFAULT_GA,
+        },
+        version: 7,
+      })
+    );
+
+    await useHaulStore.persist.rehydrate();
+
+    expect(useHaulStore.getState().ship).toMatchObject({
+      name: 'Cutlass Black',
+      maxScu: 46,
+      source: 'custom',
+      manufacturer: null,
+    });
+    expect(useHaulStore.getState().fleet[0]).toMatchObject({
+      name: 'Freelancer MAX',
+      maxScu: 122,
+      source: 'custom',
+      manufacturer: null,
+    });
   });
 });
 

@@ -32,9 +32,14 @@ export interface Mission {
   reward: number;
 }
 
+export type ShipSource = 'uex' | 'custom';
+
 export interface ShipConfig {
   name: string;
   maxScu: number;
+  source?: ShipSource;
+  uexVehicleId?: number;
+  manufacturer?: string | null;
 }
 
 export interface GAConfig {
@@ -63,10 +68,34 @@ interface HaulState {
   clearHistory: () => void;
   updateShip: (ship: ShipConfig) => void;
   upsertFleetShip: (ship: ShipConfig) => void;
-  removeFleetShip: (name: string) => void;
+  removeFleetShip: (ship: ShipConfig) => void;
   setStartLocation: (name: string) => void;
   updateGaConfig: (config: GAConfig) => void;
   clearMissions: () => void;
+}
+
+function normalizeShipConfig(ship: ShipConfig): ShipConfig {
+  return {
+    ...ship,
+    source: ship.source ?? (ship.uexVehicleId ? 'uex' : 'custom'),
+    manufacturer: ship.manufacturer ?? null,
+  };
+}
+
+function shipsMatch(left: ShipConfig, right: ShipConfig) {
+  if (left.uexVehicleId != null && right.uexVehicleId != null) {
+    return left.uexVehicleId === right.uexVehicleId;
+  }
+
+  if (left.uexVehicleId != null || right.uexVehicleId != null) {
+    return false;
+  }
+
+  return left.name.trim().toLowerCase() === right.name.trim().toLowerCase();
+}
+
+function normalizeFleet(fleet: ShipConfig[] | undefined) {
+  return (fleet ?? []).map(normalizeShipConfig);
 }
 
 export const useHaulStore = create<HaulState>()(
@@ -128,22 +157,25 @@ export const useHaulStore = create<HaulState>()(
           return { doneLegs: newDoneLegs };
         }),
       clearHistory: () => set({ completedMissions: [] }),
-      updateShip: (ship) => set({ ship }),
+      updateShip: (ship) => set({ ship: normalizeShipConfig(ship) }),
       upsertFleetShip: (ship) =>
         set((state) => {
+          const normalizedShip = normalizeShipConfig(ship);
           const existing = state.fleet.findIndex(
-            (s) => s.name.toLowerCase() === ship.name.toLowerCase()
+            (fleetShip) => shipsMatch(fleetShip, normalizedShip)
           );
           const fleet =
             existing >= 0
-              ? state.fleet.map((s, i) => (i === existing ? ship : s))
-              : [...state.fleet, ship];
+              ? state.fleet.map((fleetShip, index) =>
+                  index === existing ? normalizedShip : fleetShip
+                )
+              : [...state.fleet, normalizedShip];
           return { fleet };
         }),
-      removeFleetShip: (name) =>
+      removeFleetShip: (ship) =>
         set((state) => ({
           fleet: state.fleet.filter(
-            (s) => s.name.toLowerCase() !== name.toLowerCase()
+            (fleetShip) => !shipsMatch(fleetShip, normalizeShipConfig(ship))
           ),
         })),
       setStartLocation: (startLocationName) => set({ startLocationName }),
@@ -152,22 +184,29 @@ export const useHaulStore = create<HaulState>()(
     }),
     {
       name: 'haul-storage',
-      version: 7,
+      version: 8,
       migrate: (persistedState, version) => {
-        const state = persistedState as Partial<HaulState>;
+        let state = persistedState as Partial<HaulState>;
         // v5: Mission schema changed to cargoEntries[] — clear all missions
         if (version < 5) {
-          return { ...state, missions: [], startLocationName: '', fleet: [], completedMissions: [], doneLegs: new Set<string>() };
+          state = { ...state, missions: [], startLocationName: '', fleet: [], completedMissions: [], doneLegs: new Set<string>() };
         }
         // v6: Added fleet roster
         if (version < 6) {
-          return { ...state, fleet: [], completedMissions: [], doneLegs: new Set<string>() };
+          state = { ...state, fleet: [], completedMissions: [], doneLegs: new Set<string>() };
         }
         // v7: Added completedMissions and doneLegs
         if (version < 7) {
-          return { ...state, completedMissions: [], doneLegs: new Set<string>() };
+          state = { ...state, completedMissions: [], doneLegs: new Set<string>() };
         }
-        return state as HaulState;
+
+        return {
+          ...state,
+          ship: state.ship ? normalizeShipConfig(state.ship) : null,
+          fleet: normalizeFleet(state.fleet),
+          completedMissions: state.completedMissions ?? [],
+          doneLegs: state.doneLegs ?? new Set<string>(),
+        } as HaulState;
       },
       // Custom storage to handle Set serialization
       storage: {

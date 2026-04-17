@@ -1,404 +1,718 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { PlusIcon, XIcon } from 'lucide-react';
 import { toast } from 'sonner';
-import { getLocationByName } from '@/services/db';
-import { fetchCommodities } from '@/services/api';
-import type { Commodity } from '@/services/api';
+import { getCachedCommodities } from '@/services/db';
+import type { Commodity } from '@/services/db';
+import type { LocationSearchOption } from '@/services/searchable-locations';
 import type { MissionType, MissionCommodity, CargoEntry } from '@/store/useHaulStore';
 import { useHaulStore } from '@/store/useHaulStore';
+import { SearchPicker, type SearchPickerOption } from '@/components/SearchPicker';
 import { Button } from '@/components/ui/button';
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldTitle,
+} from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+  InputGroupText,
+} from '@/components/ui/input-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-// ---------------------------------------------------------------------------
-// Local form types
-// ---------------------------------------------------------------------------
-type EntryRow = { id: string; commodity: string; scu: string };
-type LocationGroup = { id: string; location: string; entries: EntryRow[] };
+type CommodityOption = SearchPickerOption & {
+  commodity: MissionCommodity;
+};
+
+type EntryRow = { id: string; commodity: CommodityOption | null; scu: string };
+type LocationGroup = { id: string; location: LocationSearchOption | null; entries: EntryRow[] };
 
 const uid = () => Math.random().toString(36).slice(2, 9);
-const newEntry = (): EntryRow => ({ id: uid(), commodity: '', scu: '' });
-const newGroup = (): LocationGroup => ({ id: uid(), location: '', entries: [newEntry()] });
+const newEntry = (): EntryRow => ({ id: uid(), commodity: null, scu: '' });
+const newGroup = (): LocationGroup => ({ id: uid(), location: null, entries: [newEntry()] });
 
-// ---------------------------------------------------------------------------
-// CargoEntryRow — one commodity line inside a group
-// ---------------------------------------------------------------------------
+function hasPositiveScu(value: string) {
+  return (parseInt(value, 10) || 0) > 0;
+}
+
+function toCommodityOption(commodity: Commodity): CommodityOption {
+  return {
+    id: `commodity:${commodity.id}`,
+    label: commodity.name,
+    meta: [commodity.kind, commodity.code].filter(Boolean).join(' · '),
+    keywords: [commodity.name, commodity.code, commodity.kind ?? ''].filter(Boolean),
+    badges: commodity.is_illegal === 1 ? [{ label: 'Illegal', variant: 'destructive' }] : undefined,
+    commodity: {
+      id: commodity.id,
+      name: commodity.name,
+      code: commodity.code,
+      kind: commodity.kind ?? '',
+      isIllegal: commodity.is_illegal === 1,
+    },
+  };
+}
+
+function toLocationPickerOption(location: LocationSearchOption): SearchPickerOption {
+  return {
+    id: `location:${location.id}`,
+    label: location.displayName,
+    meta: location.system,
+    keywords: location.searchTerms,
+    badges:
+      location.source === 'uex-fallback'
+        ? [{ label: 'Approx', variant: 'outline' }]
+        : undefined,
+  };
+}
+
 function CargoEntryRow({
   entry,
-  onChange,
+  commodities,
+  submitted,
+  onCommodityChange,
+  onScuChange,
   onRemove,
   canRemove,
-  commodities,
 }: {
   entry: EntryRow;
-  onChange: (id: string, field: 'commodity' | 'scu', value: string) => void;
-  onRemove: (id: string) => void;
+  commodities: CommodityOption[];
+  submitted: boolean;
+  onCommodityChange: (commodity: CommodityOption | null) => void;
+  onScuChange: (value: string) => void;
+  onRemove: () => void;
   canRemove: boolean;
-  commodities: Commodity[];
 }) {
-  const matched = commodities.find(c => c.name.toLowerCase() === entry.commodity.toLowerCase());
+  const commodityInvalid = submitted && !entry.commodity;
+  const scuInvalid = submitted && !hasPositiveScu(entry.scu);
+
   return (
-    <div className="flex items-center gap-2">
-      <Input
-        list="commodities-list"
-        value={entry.commodity}
-        onChange={e => onChange(entry.id, 'commodity', e.target.value)}
-        placeholder="Commodity (optional)"
-        className="flex-1 text-sm h-8"
-      />
-      <Input
-        type="number"
-        value={entry.scu}
-        onChange={e => onChange(entry.id, 'scu', e.target.value)}
-        placeholder="SCU"
-        min="1"
-        required
-        className="w-24 text-sm h-8"
-      />
-      {matched?.is_illegal === 1 && (
-        <span className="text-destructive text-xs shrink-0" title="Illegal commodity">⚠</span>
-      )}
-      {canRemove && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => onRemove(entry.id)}
-          className="size-8 p-0 text-muted-foreground hover:text-destructive"
-        >
-          ×
-        </Button>
-      )}
-    </div>
+    <Field data-invalid={commodityInvalid || scuInvalid || undefined} className="gap-1.5">
+      <FieldLabel className="sr-only">Cargo line</FieldLabel>
+      <FieldContent>
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <SearchPicker
+              title="Commodity"
+              placeholder="Select commodity"
+              searchPlaceholder="Search commodity…"
+              emptyMessage="No commodity matches that search."
+              options={commodities}
+              selectedOption={entry.commodity}
+              onSelect={(option) => onCommodityChange(option ? commodities.find((item) => item.id === option.id) ?? null : null)}
+              invalid={commodityInvalid}
+            />
+          </div>
+          <div className="w-28 shrink-0">
+            <InputGroup>
+              <InputGroupInput
+                type="number"
+                min="1"
+                value={entry.scu}
+                onChange={(event) => onScuChange(event.target.value)}
+                placeholder="0"
+                aria-invalid={scuInvalid || undefined}
+                aria-label="SCU amount"
+                className="text-right"
+              />
+              <InputGroupAddon align="inline-end">
+                <InputGroupText>SCU</InputGroupText>
+              </InputGroupAddon>
+            </InputGroup>
+          </div>
+          {canRemove && (
+            <InputGroupButton
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={onRemove}
+              className="mt-1 text-muted-foreground hover:text-destructive"
+              aria-label="Remove cargo row"
+            >
+              <XIcon />
+            </InputGroupButton>
+          )}
+        </div>
+        {(commodityInvalid || scuInvalid) && (
+          <FieldDescription className="text-destructive">
+            {commodityInvalid
+              ? 'Select a commodity.'
+              : 'Enter an SCU amount greater than 0.'}
+          </FieldDescription>
+        )}
+      </FieldContent>
+    </Field>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main form
-// ---------------------------------------------------------------------------
 export function AddMissionForm({
-  locationListId = 'locations-list',
+  locationOptions,
   onClose,
 }: {
-  locationListId?: string;
+  locationOptions: LocationSearchOption[];
   onClose?: () => void;
 }) {
   const [commodities, setCommodities] = useState<Commodity[]>([]);
   const [type, setType] = useState<MissionType>('direct');
   const [reward, setReward] = useState('');
+  const [submitted, setSubmitted] = useState(false);
 
-  // Direct state
-  const [directFrom, setDirectFrom] = useState('');
-  const [directTo, setDirectTo] = useState('');
+  const [directFrom, setDirectFrom] = useState<LocationSearchOption | null>(null);
+  const [directTo, setDirectTo] = useState<LocationSearchOption | null>(null);
   const [directEntries, setDirectEntries] = useState<EntryRow[]>([newEntry()]);
 
-  // Multi-pickup state: many from → one common to
-  const [mpuTo, setMpuTo] = useState('');
+  const [mpuTo, setMpuTo] = useState<LocationSearchOption | null>(null);
   const [mpuGroups, setMpuGroups] = useState<LocationGroup[]>([newGroup()]);
 
-  // Multi-dropoff state: one common from → many to
-  const [mdoFrom, setMdoFrom] = useState('');
+  const [mdoFrom, setMdoFrom] = useState<LocationSearchOption | null>(null);
   const [mdoGroups, setMdoGroups] = useState<LocationGroup[]>([newGroup()]);
 
-  const addMission = useHaulStore(state => state.addMission);
+  const addMission = useHaulStore((state) => state.addMission);
 
-  // Load commodities once
   useEffect(() => {
     async function loadData() {
       try {
-        const items = await fetchCommodities();
-        items.sort((a, b) => {
-          if (a.is_illegal !== b.is_illegal) return a.is_illegal - b.is_illegal;
-          return a.name.localeCompare(b.name);
-        });
-        setCommodities(items);
-      } catch { /* non-fatal */ }
+        setCommodities(await getCachedCommodities());
+      } catch {
+        // Non-fatal. The picker will simply render without options.
+      }
     }
+
     loadData();
   }, []);
 
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
-  function resolveCommodity(name: string): MissionCommodity | undefined {
-    const c = commodities.find(x => x.name.toLowerCase() === name.toLowerCase());
-    if (!c) return undefined;
-    return { id: c.id, name: c.name, code: c.code, kind: c.kind, isIllegal: c.is_illegal === 1 };
+  const commodityOptions = useMemo(
+    () => commodities.map(toCommodityOption),
+    [commodities]
+  );
+  const locationPickerOptions = useMemo(
+    () => locationOptions.map(toLocationPickerOption),
+    [locationOptions]
+  );
+
+  const commodityById = useMemo(
+    () => new Map(commodityOptions.map((option) => [option.id, option])),
+    [commodityOptions]
+  );
+  const locationById = useMemo(
+    () => new Map(locationOptions.map((option) => [`location:${option.id}`, option])),
+    [locationOptions]
+  );
+
+  function updateEntry(
+    setEntries: Dispatch<SetStateAction<EntryRow[]>>,
+    entryId: string,
+    updater: (entry: EntryRow) => EntryRow
+  ) {
+    setEntries((entries) =>
+      entries.map((entry) => (entry.id === entryId ? updater(entry) : entry))
+    );
   }
 
   function updateGroupEntry(
-    setGroups: React.Dispatch<React.SetStateAction<LocationGroup[]>>,
+    setGroups: Dispatch<SetStateAction<LocationGroup[]>>,
     groupId: string,
     entryId: string,
-    field: 'commodity' | 'scu',
-    value: string
+    updater: (entry: EntryRow) => EntryRow
   ) {
-    setGroups(gs => gs.map(g => g.id !== groupId ? g : {
-      ...g,
-      entries: g.entries.map(e => e.id !== entryId ? e : { ...e, [field]: value }),
-    }));
+    setGroups((groups) =>
+      groups.map((group) =>
+        group.id !== groupId
+          ? group
+          : {
+              ...group,
+              entries: group.entries.map((entry) =>
+                entry.id === entryId ? updater(entry) : entry
+              ),
+            }
+      )
+    );
   }
 
   function removeGroupEntry(
-    setGroups: React.Dispatch<React.SetStateAction<LocationGroup[]>>,
+    setGroups: Dispatch<SetStateAction<LocationGroup[]>>,
     groupId: string,
     entryId: string
   ) {
-    setGroups(gs => gs.map(g => g.id !== groupId ? g : {
-      ...g,
-      entries: g.entries.filter(e => e.id !== entryId),
-    }));
+    setGroups((groups) =>
+      groups.map((group) =>
+        group.id !== groupId
+          ? group
+          : {
+              ...group,
+              entries: group.entries.filter((entry) => entry.id !== entryId),
+            }
+      )
+    );
   }
 
   function addGroupEntry(
-    setGroups: React.Dispatch<React.SetStateAction<LocationGroup[]>>,
+    setGroups: Dispatch<SetStateAction<LocationGroup[]>>,
     groupId: string
   ) {
-    setGroups(gs => gs.map(g => g.id !== groupId ? g : { ...g, entries: [...g.entries, newEntry()] }));
+    setGroups((groups) =>
+      groups.map((group) =>
+        group.id !== groupId
+          ? group
+          : {
+              ...group,
+              entries: [...group.entries, newEntry()],
+            }
+      )
+    );
   }
 
-  function setGroupLocation(
-    setGroups: React.Dispatch<React.SetStateAction<LocationGroup[]>>,
-    groupId: string,
-    location: string
-  ) {
-    setGroups(gs => gs.map(g => g.id !== groupId ? g : { ...g, location }));
+  function validateEntries(entries: EntryRow[], label: string) {
+    const missingCommodityIndex = entries.findIndex((entry) => !entry.commodity);
+    if (missingCommodityIndex >= 0) {
+      alert(`Select a commodity for ${label} cargo row ${missingCommodityIndex + 1}.`);
+      return false;
+    }
+
+    const invalidScuIndex = entries.findIndex((entry) => !hasPositiveScu(entry.scu));
+    if (invalidScuIndex >= 0) {
+      alert(`Enter an SCU amount greater than 0 for ${label} cargo row ${invalidScuIndex + 1}.`);
+      return false;
+    }
+
+    return true;
   }
 
-  // ---------------------------------------------------------------------------
-  // Submit
-  // ---------------------------------------------------------------------------
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  function selectedLocationOption(location: LocationSearchOption | null) {
+    return location ? locationPickerOptions.find((option) => option.id === `location:${location.id}`) ?? null : null;
+  }
+
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    setSubmitted(true);
 
     let cargoEntries: CargoEntry[] = [];
+    const fallbackLocations = new Set<string>();
 
     if (type === 'direct') {
-      const [puLoc, doLoc] = await Promise.all([
-        getLocationByName(directFrom),
-        getLocationByName(directTo),
-      ]);
-      if (!puLoc) { alert(`Pickup location not found: "${directFrom}"`); return; }
-      if (!doLoc) { alert(`Dropoff location not found: "${directTo}"`); return; }
+      if (!directFrom) {
+        alert('Select a pickup location.');
+        return;
+      }
+      if (!directTo) {
+        alert('Select a dropoff location.');
+        return;
+      }
+      if (!validateEntries(directEntries, 'direct')) return;
 
-      cargoEntries = directEntries.map(e => ({
-        id: e.id,
-        scu: parseInt(e.scu) || 0,
-        pickupLocationName: puLoc.displayName,
-        dropoffLocationName: doLoc.displayName,
-        commodity: resolveCommodity(e.commodity),
+      if (directFrom.source === 'uex-fallback') fallbackLocations.add(directFrom.displayName);
+      if (directTo.source === 'uex-fallback') fallbackLocations.add(directTo.displayName);
+
+      cargoEntries = directEntries.map((entry) => ({
+        id: entry.id,
+        scu: parseInt(entry.scu, 10) || 0,
+        pickupLocationName: directFrom.displayName,
+        dropoffLocationName: directTo.displayName,
+        commodity: entry.commodity?.commodity,
       }));
     } else if (type === 'multi-pickup') {
-      const doLoc = await getLocationByName(mpuTo);
-      if (!doLoc) { alert(`Destination not found: "${mpuTo}"`); return; }
+      if (!mpuTo) {
+        alert('Select a common destination.');
+        return;
+      }
+      if (mpuTo.source === 'uex-fallback') fallbackLocations.add(mpuTo.displayName);
 
-      for (const g of mpuGroups) {
-        const puLoc = await getLocationByName(g.location);
-        if (!puLoc) { alert(`Pickup location not found: "${g.location}"`); return; }
-        g.entries.forEach(e => cargoEntries.push({
-          id: e.id,
-          scu: parseInt(e.scu) || 0,
-          pickupLocationName: puLoc.displayName,
-          dropoffLocationName: doLoc.displayName,
-          commodity: resolveCommodity(e.commodity),
-        }));
+      for (let index = 0; index < mpuGroups.length; index += 1) {
+        const group = mpuGroups[index];
+        if (!group.location) {
+          alert(`Select pickup location ${index + 1}.`);
+          return;
+        }
+        if (!validateEntries(group.entries, `pickup location ${index + 1}`)) return;
+        if (group.location.source === 'uex-fallback') {
+          fallbackLocations.add(group.location.displayName);
+        }
+
+        group.entries.forEach((entry) =>
+          cargoEntries.push({
+            id: entry.id,
+            scu: parseInt(entry.scu, 10) || 0,
+            pickupLocationName: group.location!.displayName,
+            dropoffLocationName: mpuTo.displayName,
+            commodity: entry.commodity?.commodity,
+          })
+        );
       }
     } else {
-      // multi-dropoff
-      const puLoc = await getLocationByName(mdoFrom);
-      if (!puLoc) { alert(`Origin not found: "${mdoFrom}"`); return; }
+      if (!mdoFrom) {
+        alert('Select a common origin.');
+        return;
+      }
+      if (mdoFrom.source === 'uex-fallback') fallbackLocations.add(mdoFrom.displayName);
 
-      for (const g of mdoGroups) {
-        const doLoc = await getLocationByName(g.location);
-        if (!doLoc) { alert(`Destination not found: "${g.location}"`); return; }
-        g.entries.forEach(e => cargoEntries.push({
-          id: e.id,
-          scu: parseInt(e.scu) || 0,
-          pickupLocationName: puLoc.displayName,
-          dropoffLocationName: doLoc.displayName,
-          commodity: resolveCommodity(e.commodity),
-        }));
+      for (let index = 0; index < mdoGroups.length; index += 1) {
+        const group = mdoGroups[index];
+        if (!group.location) {
+          alert(`Select destination ${index + 1}.`);
+          return;
+        }
+        if (!validateEntries(group.entries, `destination ${index + 1}`)) return;
+        if (group.location.source === 'uex-fallback') {
+          fallbackLocations.add(group.location.displayName);
+        }
+
+        group.entries.forEach((entry) =>
+          cargoEntries.push({
+            id: entry.id,
+            scu: parseInt(entry.scu, 10) || 0,
+            pickupLocationName: mdoFrom.displayName,
+            dropoffLocationName: group.location!.displayName,
+            commodity: entry.commodity?.commodity,
+          })
+        );
       }
     }
 
-    if (cargoEntries.length === 0 || cargoEntries.every(e => e.scu <= 0)) {
+    if (cargoEntries.length === 0 || cargoEntries.every((entry) => entry.scu <= 0)) {
       alert('Add at least one cargo entry with an SCU amount.');
       return;
     }
 
-    const totalScu = cargoEntries.reduce((sum, e) => sum + e.scu, 0);
+    const totalScu = cargoEntries.reduce((sum, entry) => sum + entry.scu, 0);
     addMission({
       id: uid(),
       type,
       cargoEntries,
-      reward: parseInt(reward) || 0,
+      reward: parseInt(reward, 10) || 0,
     });
 
     toast.success('Contract added', {
-      description: `${totalScu} SCU · ${(parseInt(reward) || 0).toLocaleString()} aUEC`,
+      description: `${totalScu} SCU · ${(parseInt(reward, 10) || 0).toLocaleString()} aUEC`,
     });
+
+    if (fallbackLocations.size > 0) {
+      toast.message('Approximate UEX fallback coordinates in use', {
+        description: [...fallbackLocations].join(', '),
+      });
+    }
 
     if (onClose) onClose();
   };
 
-  // ---------------------------------------------------------------------------
-  // Render helpers
-  // ---------------------------------------------------------------------------
   function renderEntryRows(
     entries: EntryRow[],
-    onChange: (id: string, field: 'commodity' | 'scu', value: string) => void,
+    onCommodityChange: (id: string, commodity: CommodityOption | null) => void,
+    onScuChange: (id: string, value: string) => void,
     onRemove: (id: string) => void,
     onAdd: () => void
   ) {
     return (
-      <div className="flex flex-col gap-1.5">
-        <div className="grid grid-cols-[1fr_6rem_1.5rem] gap-2 text-xs text-muted-foreground px-0.5">
-          <span>Commodity</span><span>SCU</span><span />
-        </div>
-        {entries.map(e => (
+      <FieldGroup className="gap-3">
+        <Field>
+          <FieldTitle className="text-xs uppercase tracking-wider text-muted-foreground">
+            Cargo
+          </FieldTitle>
+          <FieldDescription>
+            Select the contract commodities and the SCU assigned to each cargo line.
+          </FieldDescription>
+        </Field>
+        {entries.map((entry) => (
           <CargoEntryRow
-            key={e.id}
-            entry={e}
-            onChange={onChange}
-            onRemove={onRemove}
+            key={entry.id}
+            entry={entry}
+            commodities={commodityOptions}
+            submitted={submitted}
+            onCommodityChange={(commodity) => onCommodityChange(entry.id, commodity)}
+            onScuChange={(value) => onScuChange(entry.id, value)}
+            onRemove={() => onRemove(entry.id)}
             canRemove={entries.length > 1}
-            commodities={commodities}
           />
         ))}
-        <Button type="button" variant="ghost" size="sm" className="text-xs h-7 text-muted-foreground" onClick={onAdd}>
-          + Add cargo type
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start text-xs text-muted-foreground"
+          onClick={onAdd}
+        >
+          <PlusIcon data-icon="inline-start" />
+          Add cargo type
         </Button>
-      </div>
+      </FieldGroup>
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // JSX
-  // ---------------------------------------------------------------------------
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4 p-4 border border-border rounded-xl bg-muted/30">
-      {/* Hidden datalists */}
-      <datalist id="commodities-list">
-        {commodities.map((c, i) => <option key={i} value={c.name} />)}
-      </datalist>
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4 rounded-xl border border-border bg-muted/30 p-4">
+      <FieldGroup className="gap-4">
+        <Field>
+          <FieldLabel>Mission Type</FieldLabel>
+          <Select value={type} onValueChange={(value: MissionType) => setType(value)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="direct">Direct — one pickup → one dropoff</SelectItem>
+              <SelectItem value="multi-pickup">Multi-Pickup — many pickups → one dropoff</SelectItem>
+              <SelectItem value="multi-dropoff">Multi-Dropoff — one pickup → many dropoffs</SelectItem>
+            </SelectContent>
+          </Select>
+        </Field>
 
-      {/* Mission type */}
-      <div className="flex flex-col gap-1.5">
-        <Label>Mission Type</Label>
-        <Select value={type} onValueChange={(v: MissionType) => setType(v)}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="direct">Direct — one pickup → one dropoff</SelectItem>
-            <SelectItem value="multi-pickup">Multi-Pickup — many pickups → one dropoff</SelectItem>
-            <SelectItem value="multi-dropoff">Multi-Dropoff — one pickup → many dropoffs</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* ── DIRECT ─────────────────────────────────────────────────── */}
-      {type === 'direct' && (
-        <div className="flex flex-col gap-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs text-muted-foreground">Pickup (From)</Label>
-              <Input list={locationListId} value={directFrom} onChange={e => setDirectFrom(e.target.value)}
-                placeholder="Search location…" required />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs text-muted-foreground">Dropoff (To)</Label>
-              <Input list={locationListId} value={directTo} onChange={e => setDirectTo(e.target.value)}
-                placeholder="Search location…" required />
-            </div>
+        {type === 'direct' && (
+          <div className="grid gap-3 md:grid-cols-2">
+            <Field data-invalid={submitted && !directFrom ? true : undefined}>
+              <FieldLabel className="text-xs text-muted-foreground">Pickup (From)</FieldLabel>
+              <SearchPicker
+                title="Pickup location"
+                placeholder="Search location…"
+                searchPlaceholder="Search pickup location…"
+                emptyMessage="No location matches that search."
+                options={locationPickerOptions}
+                selectedOption={selectedLocationOption(directFrom)}
+                onSelect={(option) => setDirectFrom(option ? locationById.get(option.id) ?? null : null)}
+                invalid={submitted && !directFrom}
+              />
+            </Field>
+            <Field data-invalid={submitted && !directTo ? true : undefined}>
+              <FieldLabel className="text-xs text-muted-foreground">Dropoff (To)</FieldLabel>
+              <SearchPicker
+                title="Dropoff location"
+                placeholder="Search location…"
+                searchPlaceholder="Search dropoff location…"
+                emptyMessage="No location matches that search."
+                options={locationPickerOptions}
+                selectedOption={selectedLocationOption(directTo)}
+                onSelect={(option) => setDirectTo(option ? locationById.get(option.id) ?? null : null)}
+                invalid={submitted && !directTo}
+              />
+            </Field>
           </div>
-          {renderEntryRows(
+        )}
+
+        {type === 'direct' &&
+          renderEntryRows(
             directEntries,
-            (id, field, value) => setDirectEntries(es => es.map(e => e.id === id ? { ...e, [field]: value } : e)),
-            (id) => setDirectEntries(es => es.filter(e => e.id !== id)),
-            () => setDirectEntries(es => [...es, newEntry()])
+            (entryId, commodity) =>
+              updateEntry(setDirectEntries, entryId, (entry) => ({ ...entry, commodity })),
+            (entryId, value) =>
+              updateEntry(setDirectEntries, entryId, (entry) => ({ ...entry, scu: value })),
+            (entryId) =>
+              setDirectEntries((entries) => entries.filter((entry) => entry.id !== entryId)),
+            () => setDirectEntries((entries) => [...entries, newEntry()])
           )}
-        </div>
-      )}
 
-      {/* ── MULTI-PICKUP ────────────────────────────────────────────── */}
-      {type === 'multi-pickup' && (
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-xs text-muted-foreground">Common Destination (To)</Label>
-            <Input list={locationListId} value={mpuTo} onChange={e => setMpuTo(e.target.value)}
-              placeholder="Search location…" required />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label className="text-xs text-muted-foreground uppercase tracking-wider">Pickup Points</Label>
-            {mpuGroups.map((g, gi) => (
-              <div key={g.id} className="rounded-lg border border-border bg-muted/20 p-3 flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <Input list={locationListId} value={g.location}
-                    onChange={e => setGroupLocation(setMpuGroups, g.id, e.target.value)}
-                    placeholder={`Pickup ${gi + 1} — from…`} required className="flex-1" />
+        {type === 'multi-pickup' && (
+          <FieldGroup className="gap-3">
+            <Field data-invalid={submitted && !mpuTo ? true : undefined}>
+              <FieldLabel className="text-xs text-muted-foreground">Common Destination (To)</FieldLabel>
+              <SearchPicker
+                title="Common destination"
+                placeholder="Search location…"
+                searchPlaceholder="Search destination…"
+                emptyMessage="No location matches that search."
+                options={locationPickerOptions}
+                selectedOption={selectedLocationOption(mpuTo)}
+                onSelect={(option) => setMpuTo(option ? locationById.get(option.id) ?? null : null)}
+                invalid={submitted && !mpuTo}
+              />
+            </Field>
+
+            <Field>
+              <FieldTitle className="text-xs uppercase tracking-wider text-muted-foreground">
+                Pickup Points
+              </FieldTitle>
+              <FieldDescription>Each pickup location can carry one or many commodities.</FieldDescription>
+            </Field>
+
+            {mpuGroups.map((group, groupIndex) => (
+              <div key={group.id} className="flex flex-col gap-3 rounded-lg border border-border bg-muted/20 p-3">
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <Field data-invalid={submitted && !group.location ? true : undefined}>
+                      <FieldLabel className="text-xs text-muted-foreground">
+                        Pickup {groupIndex + 1}
+                      </FieldLabel>
+                      <SearchPicker
+                        title={`Pickup ${groupIndex + 1}`}
+                        placeholder="Search location…"
+                        searchPlaceholder={`Search pickup ${groupIndex + 1}…`}
+                        emptyMessage="No location matches that search."
+                        options={locationPickerOptions}
+                        selectedOption={selectedLocationOption(group.location)}
+                        onSelect={(option) =>
+                          setMpuGroups((groups) =>
+                            groups.map((current) =>
+                              current.id !== group.id
+                                ? current
+                                : {
+                                    ...current,
+                                    location: option ? locationById.get(option.id) ?? null : null,
+                                  }
+                            )
+                          )
+                        }
+                        invalid={submitted && !group.location}
+                      />
+                    </Field>
+                  </div>
                   {mpuGroups.length > 1 && (
-                    <Button type="button" variant="ghost" size="sm" className="size-8 p-0 text-muted-foreground hover:text-destructive"
-                      onClick={() => setMpuGroups(gs => gs.filter(x => x.id !== g.id))}>×</Button>
+                    <InputGroupButton
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => setMpuGroups((groups) => groups.filter((current) => current.id !== group.id))}
+                      className="mt-6 text-muted-foreground hover:text-destructive"
+                      aria-label={`Remove pickup ${groupIndex + 1}`}
+                    >
+                      <XIcon />
+                    </InputGroupButton>
                   )}
                 </div>
                 {renderEntryRows(
-                  g.entries,
-                  (id, field, value) => updateGroupEntry(setMpuGroups, g.id, id, field, value),
-                  (id) => removeGroupEntry(setMpuGroups, g.id, id),
-                  () => addGroupEntry(setMpuGroups, g.id)
+                  group.entries,
+                  (entryId, commodity) =>
+                    updateGroupEntry(setMpuGroups, group.id, entryId, (entry) => ({
+                      ...entry,
+                      commodity: commodity ? commodityById.get(commodity.id) ?? commodity : null,
+                    })),
+                  (entryId, value) =>
+                    updateGroupEntry(setMpuGroups, group.id, entryId, (entry) => ({
+                      ...entry,
+                      scu: value,
+                    })),
+                  (entryId) => removeGroupEntry(setMpuGroups, group.id, entryId),
+                  () => addGroupEntry(setMpuGroups, group.id)
                 )}
               </div>
             ))}
-            <Button type="button" variant="outline" size="sm" onClick={() => setMpuGroups(gs => [...gs, newGroup()])}>
-              + Add Pickup Location
-            </Button>
-          </div>
-        </div>
-      )}
 
-      {/* ── MULTI-DROPOFF ────────────────────────────────────────────── */}
-      {type === 'multi-dropoff' && (
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-xs text-muted-foreground">Common Origin (From)</Label>
-            <Input list={locationListId} value={mdoFrom} onChange={e => setMdoFrom(e.target.value)}
-              placeholder="Search location…" required />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label className="text-xs text-muted-foreground uppercase tracking-wider">Destinations</Label>
-            {mdoGroups.map((g, gi) => (
-              <div key={g.id} className="rounded-lg border border-border bg-muted/20 p-3 flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <Input list={locationListId} value={g.location}
-                    onChange={e => setGroupLocation(setMdoGroups, g.id, e.target.value)}
-                    placeholder={`Destination ${gi + 1} — to…`} required className="flex-1" />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setMpuGroups((groups) => [...groups, newGroup()])}
+            >
+              <PlusIcon data-icon="inline-start" />
+              Add Pickup Location
+            </Button>
+          </FieldGroup>
+        )}
+
+        {type === 'multi-dropoff' && (
+          <FieldGroup className="gap-3">
+            <Field data-invalid={submitted && !mdoFrom ? true : undefined}>
+              <FieldLabel className="text-xs text-muted-foreground">Common Origin (From)</FieldLabel>
+              <SearchPicker
+                title="Common origin"
+                placeholder="Search location…"
+                searchPlaceholder="Search origin…"
+                emptyMessage="No location matches that search."
+                options={locationPickerOptions}
+                selectedOption={selectedLocationOption(mdoFrom)}
+                onSelect={(option) => setMdoFrom(option ? locationById.get(option.id) ?? null : null)}
+                invalid={submitted && !mdoFrom}
+              />
+            </Field>
+
+            <Field>
+              <FieldTitle className="text-xs uppercase tracking-wider text-muted-foreground">
+                Destinations
+              </FieldTitle>
+              <FieldDescription>Each destination can receive one or many commodities.</FieldDescription>
+            </Field>
+
+            {mdoGroups.map((group, groupIndex) => (
+              <div key={group.id} className="flex flex-col gap-3 rounded-lg border border-border bg-muted/20 p-3">
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <Field data-invalid={submitted && !group.location ? true : undefined}>
+                      <FieldLabel className="text-xs text-muted-foreground">
+                        Destination {groupIndex + 1}
+                      </FieldLabel>
+                      <SearchPicker
+                        title={`Destination ${groupIndex + 1}`}
+                        placeholder="Search location…"
+                        searchPlaceholder={`Search destination ${groupIndex + 1}…`}
+                        emptyMessage="No location matches that search."
+                        options={locationPickerOptions}
+                        selectedOption={selectedLocationOption(group.location)}
+                        onSelect={(option) =>
+                          setMdoGroups((groups) =>
+                            groups.map((current) =>
+                              current.id !== group.id
+                                ? current
+                                : {
+                                    ...current,
+                                    location: option ? locationById.get(option.id) ?? null : null,
+                                  }
+                            )
+                          )
+                        }
+                        invalid={submitted && !group.location}
+                      />
+                    </Field>
+                  </div>
                   {mdoGroups.length > 1 && (
-                    <Button type="button" variant="ghost" size="sm" className="size-8 p-0 text-muted-foreground hover:text-destructive"
-                      onClick={() => setMdoGroups(gs => gs.filter(x => x.id !== g.id))}>×</Button>
+                    <InputGroupButton
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => setMdoGroups((groups) => groups.filter((current) => current.id !== group.id))}
+                      className="mt-6 text-muted-foreground hover:text-destructive"
+                      aria-label={`Remove destination ${groupIndex + 1}`}
+                    >
+                      <XIcon />
+                    </InputGroupButton>
                   )}
                 </div>
                 {renderEntryRows(
-                  g.entries,
-                  (id, field, value) => updateGroupEntry(setMdoGroups, g.id, id, field, value),
-                  (id) => removeGroupEntry(setMdoGroups, g.id, id),
-                  () => addGroupEntry(setMdoGroups, g.id)
+                  group.entries,
+                  (entryId, commodity) =>
+                    updateGroupEntry(setMdoGroups, group.id, entryId, (entry) => ({
+                      ...entry,
+                      commodity: commodity ? commodityById.get(commodity.id) ?? commodity : null,
+                    })),
+                  (entryId, value) =>
+                    updateGroupEntry(setMdoGroups, group.id, entryId, (entry) => ({
+                      ...entry,
+                      scu: value,
+                    })),
+                  (entryId) => removeGroupEntry(setMdoGroups, group.id, entryId),
+                  () => addGroupEntry(setMdoGroups, group.id)
                 )}
               </div>
             ))}
-            <Button type="button" variant="outline" size="sm" onClick={() => setMdoGroups(gs => [...gs, newGroup()])}>
-              + Add Destination
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setMdoGroups((groups) => [...groups, newGroup()])}
+            >
+              <PlusIcon data-icon="inline-start" />
+              Add Destination
             </Button>
-          </div>
-        </div>
-      )}
+          </FieldGroup>
+        )}
 
-      {/* Reward */}
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="reward">Contract Reward (aUEC)</Label>
-        <Input id="reward" type="number" value={reward} onChange={e => setReward(e.target.value)}
-          min="0" required placeholder="0" />
-      </div>
+        <Field>
+          <FieldLabel htmlFor="reward">Contract Reward (aUEC)</FieldLabel>
+          <Input
+            id="reward"
+            type="number"
+            value={reward}
+            onChange={(event) => setReward(event.target.value)}
+            min="0"
+            required
+            placeholder="0"
+          />
+        </Field>
+      </FieldGroup>
 
-      <Button type="submit" className="w-full">Add Contract</Button>
+      <Button type="submit" className="w-full">
+        Add Contract
+      </Button>
     </form>
   );
 }

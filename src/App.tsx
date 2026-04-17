@@ -5,7 +5,10 @@ import { FleetTab } from '@/components/FleetTab'
 import { PlannerTab } from '@/components/PlannerTab'
 import { SettingsTab } from '@/components/SettingsTab'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { getSearchableLocationNames } from '@/services/searchable-locations'
+import {
+  getLocationSearchOptions,
+  type LocationSearchOption,
+} from '@/services/searchable-locations'
 import { useRouteOptimization } from '@/hooks/useRouteOptimization'
 import { useHaulStore, type Mission } from '@/store/useHaulStore'
 
@@ -89,7 +92,7 @@ const EXAMPLE_MISSIONS: Omit<Mission, 'id'>[] = [
 export default function App() {
   const [dataReady, setDataReady] = useState(false)
   const [formKey, setFormKey] = useState(0)
-  const [locations, setLocations] = useState<string[]>([])
+  const [locationOptions, setLocationOptions] = useState<LocationSearchOption[]>([])
 
   const missions = useHaulStore((state) => state.missions)
   const addMission = useHaulStore((state) => state.addMission)
@@ -107,8 +110,6 @@ export default function App() {
   const startLocationName = useHaulStore((state) => state.startLocationName)
   const setStartLocation = useHaulStore((state) => state.setStartLocation)
 
-  const [shipName, setShipName] = useState(ship?.name || '')
-  const [shipScu, setShipScu] = useState(ship?.maxScu?.toString() || '')
   const [gaPopulation, setGaPopulation] = useState(gaConfig.populationSize.toString())
   const [gaGenerations, setGaGenerations] = useState(gaConfig.generations.toString())
   const [gaMutationRate, setGaMutationRate] = useState(gaConfig.mutationRate.toString())
@@ -131,8 +132,8 @@ export default function App() {
   useEffect(() => {
     if (!dataReady) return
 
-    getSearchableLocationNames()
-      .then(setLocations)
+    getLocationSearchOptions()
+      .then(setLocationOptions)
       .catch((err) => console.error(err))
   }, [dataReady])
 
@@ -179,12 +180,6 @@ export default function App() {
           </header>
 
           <main className="flex min-h-0 flex-1 flex-col overflow-hidden p-4 lg:p-6">
-            <datalist id="app-locations-list">
-              {locations.map((locationName) => (
-                <option key={locationName} value={locationName} />
-              ))}
-            </datalist>
-
             <Tabs defaultValue="planner" className="flex min-h-0 flex-1 flex-col">
               <TabsList className="mb-4 grid h-12 w-full shrink-0 grid-cols-3 rounded-xl border border-border/50 bg-background/40 p-1 backdrop-blur-sm">
                 <TabsTrigger
@@ -215,6 +210,7 @@ export default function App() {
                   formKey={formKey}
                   startLocationName={startLocationName}
                   setStartLocation={setStartLocation}
+                  locationOptions={locationOptions}
                   missions={missions}
                   completedMissions={completedMissions}
                   clearHistory={clearHistory}
@@ -238,10 +234,6 @@ export default function App() {
               >
                 <FleetTab
                   ship={ship}
-                  shipName={shipName}
-                  shipScu={shipScu}
-                  setShipName={setShipName}
-                  setShipScu={setShipScu}
                   fleet={fleet}
                   updateShip={updateShip}
                   upsertFleetShip={upsertFleetShip}

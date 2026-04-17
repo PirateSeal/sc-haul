@@ -1,5 +1,6 @@
 import { AlertCircle, RotateCw, X } from 'lucide-react'
 import { AddMissionForm } from '@/components/AddMissionForm'
+import { SearchPicker } from '@/components/SearchPicker'
 import { RouteResults, type LegEntry } from '@/components/RouteResults'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -11,9 +12,8 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import type { LocationSearchOption } from '@/services/searchable-locations'
 import type { OptimizeResult } from '@/lib/genetic-algorithm'
 import type { Mission } from '@/store/useHaulStore'
 
@@ -21,6 +21,7 @@ interface PlannerTabProps {
   formKey: number
   startLocationName: string
   setStartLocation: (name: string) => void
+  locationOptions: LocationSearchOption[]
   missions: Mission[]
   completedMissions: Mission[]
   clearHistory: () => void
@@ -41,6 +42,7 @@ export function PlannerTab({
   formKey,
   startLocationName,
   setStartLocation,
+  locationOptions,
   missions,
   completedMissions,
   clearHistory,
@@ -56,6 +58,24 @@ export function PlannerTab({
   progress,
   optimizeRoutePlan,
 }: PlannerTabProps) {
+  const startLocationOption =
+    locationOptions.find((option) =>
+      [option.displayName, option.name, ...option.aliases].some(
+        (value) => value.toLowerCase() === startLocationName.trim().toLowerCase()
+      )
+    ) ?? null
+
+  const locationPickerOptions = locationOptions.map((option) => ({
+    id: `location:${option.id}`,
+    label: option.displayName,
+    meta: option.system,
+    keywords: option.searchTerms,
+    badges:
+      option.source === 'uex-fallback'
+        ? [{ label: 'Approx', variant: 'outline' as const }]
+        : undefined,
+  }))
+
   return (
     <div className="grid h-full grid-cols-3 gap-4">
       <Card className="flex min-h-0 flex-col border-border shadow-xl">
@@ -67,7 +87,7 @@ export function PlannerTab({
           <CardContent>
             <AddMissionForm
               key={formKey}
-              locationListId="app-locations-list"
+              locationOptions={locationOptions}
               onClose={resetMissionForm}
             />
           </CardContent>
@@ -80,20 +100,29 @@ export function PlannerTab({
             <div className="min-w-0 flex-1">
               <CardTitle>Mission Manifest</CardTitle>
               <CardDescription className="mt-1">
-                <div className="mt-2 flex items-center gap-2">
-                  <Label
-                    htmlFor="start-location"
-                    className="shrink-0 text-xs uppercase tracking-wider text-muted-foreground"
-                  >
-                    Start
-                  </Label>
-                  <Input
-                    id="start-location"
-                    list="app-locations-list"
-                    value={startLocationName}
-                    onChange={(event) => setStartLocation(event.target.value)}
+                <div className="mt-2">
+                  <SearchPicker
+                    title="Start location"
                     placeholder="Starting station…"
-                    className="h-7 text-xs"
+                    searchPlaceholder="Search starting station…"
+                    emptyMessage="No location matches that search."
+                    options={locationPickerOptions}
+                    selectedOption={
+                      startLocationOption
+                        ? locationPickerOptions.find(
+                            (option) => option.id === `location:${startLocationOption.id}`
+                          ) ?? null
+                        : null
+                    }
+                    onSelect={(option) => {
+                      const selected = option
+                        ? locationOptions.find((location) => `location:${location.id}` === option.id) ?? null
+                        : null
+                      setStartLocation(selected?.displayName ?? '')
+                    }}
+                    allowClear
+                    triggerClassName="min-h-7 rounded-2xl px-2.5 py-1.5 text-xs"
+                    contentClassName="sm:max-w-md"
                   />
                 </div>
               </CardDescription>

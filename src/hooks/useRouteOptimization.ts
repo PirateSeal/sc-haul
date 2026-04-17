@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { getLocationByName, type LocationResult } from '@/services/db'
+import { getLocationByName, type LocationResult } from '@/services/location-catalog'
 import { pointKey } from '@/lib/utils'
 import { splitMissionsForCapacity } from '@/lib/genetic-algorithm'
 import type {
@@ -77,6 +77,7 @@ export function useRouteOptimization({
       const maxScu = ship?.maxScu && ship.maxScu > 0 ? ship.maxScu : Infinity
       const coordSystemMap = new Map<string, string>()
       const locationCache = new Map<string, Promise<LocationResult | null>>()
+      const fallbackLocations = new Set<string>()
 
       const resolveLocation = (locationName: string) => {
         const trimmed = locationName.trim()
@@ -90,13 +91,16 @@ export function useRouteOptimization({
       }
 
       let startPoint: { x: number; y: number; z: number } | null = null
-      if (startLocationName.trim()) {
-        const startLocation = await resolveLocation(startLocationName)
-        if (startLocation) {
-          startPoint = startLocation.coords
-          coordSystemMap.set(pointKey(startLocation.coords), startLocation.system)
+        if (startLocationName.trim()) {
+          const startLocation = await resolveLocation(startLocationName)
+          if (startLocation) {
+            startPoint = startLocation.coords
+            coordSystemMap.set(pointKey(startLocation.coords), startLocation.system)
+            if (startLocation.source === 'uex-fallback') {
+              fallbackLocations.add(startLocation.displayName)
+            }
+          }
         }
-      }
 
       const missionById = new Map(missions.map((mission) => [mission.id, mission]))
       const cargoEntriesByMission = new Map(
@@ -121,6 +125,13 @@ export function useRouteOptimization({
 
               if (!dropoffLocation) {
                 throw new Error(`Dropoff location not found: "${entry.dropoffLocationName}"`)
+              }
+
+              if (pickupLocation.source === 'uex-fallback') {
+                fallbackLocations.add(pickupLocation.displayName)
+              }
+              if (dropoffLocation.source === 'uex-fallback') {
+                fallbackLocations.add(dropoffLocation.displayName)
               }
 
               coordSystemMap.set(pointKey(pickupLocation.coords), pickupLocation.system)
@@ -189,6 +200,15 @@ export function useRouteOptimization({
           toast.success('Route optimized', {
             description: `${annotatedRoute.length} stops · ${distanceGm} Gm total`,
           })
+          if (fallbackLocations.size > 0) {
+            const names = [...fallbackLocations].slice(0, 3).join(', ')
+            toast.message('Using approximate UEX fallback coordinates', {
+              description:
+                fallbackLocations.size > 3
+                  ? `${names}, and ${fallbackLocations.size - 3} more`
+                  : names,
+            })
+          }
           return
         }
 
