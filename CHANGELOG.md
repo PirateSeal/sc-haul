@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-17
+
 ### Added
 
 - Authenticated UEX ship catalog support in the fleet tab, including manufacturer metadata, SCU import, and custom-ship fallbacks when catalog lookups miss.
