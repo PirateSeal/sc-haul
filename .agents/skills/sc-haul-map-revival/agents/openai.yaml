@@ -1,0 +1,4 @@
+interface:
+  display_name: "SC Haul Map Revival"
+  short_description: "Resume or assess the paused system map feature safely."
+  default_prompt: "Use this skill when evaluating, reviving, or pruning the paused SC Haul map feature and its historical plans."

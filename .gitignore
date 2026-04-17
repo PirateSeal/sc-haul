@@ -11,6 +11,10 @@ node_modules
 dist
 dist-ssr
 *.local
+api/
+tmp/
+.claude/
+sc-haul.zip
 
 # Editor directories and files
 .vscode/*

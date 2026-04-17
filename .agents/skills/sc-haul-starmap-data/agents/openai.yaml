@@ -1,0 +1,4 @@
+interface:
+  display_name: "SC Haul Starmap Data"
+  short_description: "Work on starmap sync, IndexedDB, aliases, and location accuracy."
+  default_prompt: "Use this skill when working on SC Haul data sync, IndexedDB, starmap.space ingestion, or location resolution."

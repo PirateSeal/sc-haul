@@ -1,0 +1,4 @@
+interface:
+  display_name: "SC Haul Routing"
+  short_description: "Work on route optimization, mission legs, and RouteResults."
+  default_prompt: "Use this skill when working on SC Haul route optimization, mission modeling, worker orchestration, or RouteResults behavior."

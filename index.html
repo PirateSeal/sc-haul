@@ -5,6 +5,16 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>sc-haul</title>
+    <!-- Blocking theme script — prevents flash of wrong theme on load -->
+    <script>
+      try {
+        var t = JSON.parse(localStorage.getItem('theme-storage') || '{}');
+        var mode = (t.state && t.state.mode) || 'dark';
+        if (mode === 'dark') document.documentElement.classList.add('dark');
+      } catch (_) {
+        document.documentElement.classList.add('dark');
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
