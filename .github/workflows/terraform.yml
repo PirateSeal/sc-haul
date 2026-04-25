@@ -18,7 +18,7 @@ permissions:
 
 env:
   TF_WORKING_DIR: infra/prod
-  AWS_REGION: ${{ vars.AWS_REGION }}
+  AWS_REGION: ${{ secrets.AWS_REGION }}
 
 jobs:
   terraform:
@@ -35,8 +35,8 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -47,7 +47,7 @@ jobs:
         run: terraform fmt -check -recursive
 
       - name: Terraform Init
-        run: terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+        run: terraform init -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}"
 
       - name: Terraform Validate
         run: terraform validate
@@ -90,12 +90,3 @@ jobs:
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
         run: terraform apply -auto-approve tfplan
 
-      - name: Export TF outputs to GitHub variables
-        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          CF_ID=$(terraform output -raw cloudfront_distribution_id)
-          BUCKET=$(terraform output -raw site_bucket_id)
-          gh variable set CF_DISTRIBUTION_ID --body "$CF_ID" --repo ${{ github.repository }}
-          gh variable set SITE_BUCKET_ID --body "$BUCKET" --repo ${{ github.repository }}

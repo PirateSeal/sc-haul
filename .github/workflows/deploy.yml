@@ -34,12 +34,12 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Sync hashed assets (long-cache)
         run: |
-          aws s3 sync dist/ s3://${{ vars.SITE_BUCKET_ID }}/ \
+          aws s3 sync dist/ s3://${{ secrets.SITE_BUCKET_ID }}/ \
             --delete \
             --cache-control "public,max-age=31536000,immutable" \
             --exclude "index.html" \
@@ -51,7 +51,7 @@ jobs:
         run: |
           for file in index.html manifest.webmanifest sw.js registerSW.js; do
             if [ -f "dist/$file" ]; then
-              aws s3 cp "dist/$file" "s3://${{ vars.SITE_BUCKET_ID }}/$file" \
+              aws s3 cp "dist/$file" "s3://${{ secrets.SITE_BUCKET_ID }}/$file" \
                 --cache-control "no-cache"
             fi
           done
@@ -59,5 +59,5 @@ jobs:
       - name: Invalidate CloudFront
         run: |
           aws cloudfront create-invalidation \
-            --distribution-id ${{ vars.CF_DISTRIBUTION_ID }} \
+            --distribution-id ${{ secrets.CF_DISTRIBUTION_ID }} \
             --paths "/index.html" "/manifest.webmanifest" "/sw.js" "/registerSW.js"
