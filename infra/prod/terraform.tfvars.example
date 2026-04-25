@@ -1,0 +1,5 @@
+# No required variables — account ID is read from active AWS credentials automatically.
+# Override defaults here if needed:
+# domain           = "tcousin.com"
+# subdomain        = "sc-haul.tcousin.com"
+# app_registry_tag = ""  # fill in after first apply

@@ -27,3 +27,14 @@ sc-haul.zip
 *.sln
 *.sw?
 .env
+
+# Terraform
+infra/**/.terraform/
+infra/**/.terraform.lock.hcl
+infra/**/*.tfstate
+infra/**/*.tfstate.*
+infra/**/*.tfvars
+!infra/**/*.tfvars.example
+infra/**/.build/
+infra/**/backend.hcl
+!infra/**/backend.hcl.example

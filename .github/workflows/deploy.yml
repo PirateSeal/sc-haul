@@ -1,0 +1,65 @@
+name: Deploy
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Build & Deploy SPA
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+        # No VITE_UEX_BEARER_TOKEN needed — proxy handles auth in prod
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Sync hashed assets (long-cache)
+        run: |
+          aws s3 sync dist/ s3://${{ vars.SITE_BUCKET_ID }}/ \
+            --delete \
+            --cache-control "public,max-age=31536000,immutable" \
+            --exclude "index.html" \
+            --exclude "*.webmanifest" \
+            --exclude "sw.js" \
+            --exclude "registerSW.js"
+
+      - name: Sync entry points (no-cache)
+        run: |
+          for file in index.html manifest.webmanifest sw.js registerSW.js; do
+            if [ -f "dist/$file" ]; then
+              aws s3 cp "dist/$file" "s3://${{ vars.SITE_BUCKET_ID }}/$file" \
+                --cache-control "no-cache"
+            fi
+          done
+
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ vars.CF_DISTRIBUTION_ID }} \
+            --paths "/index.html" "/manifest.webmanifest" "/sw.js" "/registerSW.js"

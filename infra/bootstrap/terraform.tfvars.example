@@ -1,0 +1,4 @@
+# No required variables — account ID is read from active AWS credentials automatically.
+# Override defaults here if needed:
+# aws_region  = "eu-west-1"
+# github_repo = "PirateSeal/sc-haul"

@@ -91,7 +91,9 @@ type UexResponse<T> = {
   data?: T[]
 }
 
-const UEX_API_BASE = 'https://api.uexcorp.space/2.0'
+const UEX_API_BASE = import.meta.env.PROD
+  ? '/api/uex'
+  : (import.meta.env.VITE_UEX_API_BASE ?? 'https://api.uexcorp.space/2.0')
 const uexResourceCache = new Map<string, Promise<unknown[]>>()
 
 interface UexFetchOptions {
@@ -103,8 +105,9 @@ function getUexHeaders({
   requireAuth = true,
   includeAuth = requireAuth,
 }: UexFetchOptions = {}): HeadersInit {
-  const token = import.meta.env.VITE_UEX_BEARER_TOKEN?.trim()
-  if (!token && requireAuth) {
+  // In prod the Lambda proxy injects the Authorization header — no client token needed.
+  const token = import.meta.env.PROD ? undefined : import.meta.env.VITE_UEX_BEARER_TOKEN?.trim()
+  if (!token && requireAuth && !import.meta.env.PROD) {
     throw new Error('Missing VITE_UEX_BEARER_TOKEN for live UEX data.')
   }
 

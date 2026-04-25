@@ -6,6 +6,20 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-26
+
+### Added
+
+- AWS infrastructure via Terraform: S3 + CloudFront + ACM (ECDSA P-256) + Route53 records, deploying to `sc-haul.tcousin.com`.
+- Lambda proxy for UEX API — bearer token stored in SSM SecureString, never exposed in the client bundle. CloudFront routes `/api/uex/*` to the proxy with a shared secret header.
+- Terraform S3 backend with native locking, bootstrap module for state bucket and GitHub OIDC trust.
+- GitHub Actions CI/CD: Terraform plan on PRs, apply on `master`, SPA deploy on version tags (`v*`) via OIDC — no static AWS credentials.
+- AWS AppRegistry application grouping all resources under `sc-haul` in the myApplications console.
+
+### Changed
+
+- UEX client base URL switches to same-origin `/api/uex` in production builds; local dev retains `VITE_UEX_API_BASE` / `VITE_UEX_BEARER_TOKEN` fallback.
+
 ## [0.2.0] - 2026-04-17
 
 ### Added
