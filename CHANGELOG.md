@@ -6,6 +6,30 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-04-26
+
+### Fixed
+
+- Restored production UEX proxy access by adding the required Lambda Function URL invoke permission for public `NONE` auth.
+- Added case-insensitive CloudFront shared-secret header validation and a stable UEX outbound `User-Agent` to avoid false `403` responses.
+- Granted Lambda KMS decrypt access for SecureString SSM reads through SSM.
+
+### Changed
+
+- Upgraded Terraform AWS provider constraints to v6 for native `invoked_via_function_url` support.
+
+## [0.3.2] - 2026-04-26
+
+### Fixed
+
+- Switched CI/CD workflows from repository variables to secrets for AWS OIDC role configuration.
+
+## [0.3.1] - 2026-04-26
+
+### Fixed
+
+- Removed a duplicate pnpm version declaration from the deploy workflow.
+
 ## [0.3.0] - 2026-04-26
 
 ### Added

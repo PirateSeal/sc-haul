@@ -51,12 +51,23 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
 
 data "aws_iam_policy_document" "lambda_ssm" {
   statement {
-    effect    = "Allow"
-    actions   = ["ssm:GetParameter"]
+    effect  = "Allow"
+    actions = ["ssm:GetParameter"]
     resources = [
       aws_ssm_parameter.uex_token.arn,
       aws_ssm_parameter.cf_secret.arn,
     ]
+  }
+
+  statement {
+    effect    = "Allow"
+    actions   = ["kms:Decrypt"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["ssm.eu-west-1.amazonaws.com"]
+    }
   }
 }
 
@@ -95,4 +106,21 @@ resource "aws_lambda_function" "this" {
 resource "aws_lambda_function_url" "this" {
   function_name      = aws_lambda_function.this.function_name
   authorization_type = "NONE"
+}
+
+# Required for NONE auth — Terraform does not auto-create this unlike the console
+resource "aws_lambda_permission" "function_url_public" {
+  statement_id           = "FunctionURLAllowPublicAccess"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = aws_lambda_function.this.function_name
+  principal              = "*"
+  function_url_auth_type = "NONE"
+}
+
+resource "aws_lambda_permission" "function_url_public_invoke" {
+  statement_id             = "FunctionURLAllowPublicInvoke"
+  action                   = "lambda:InvokeFunction"
+  function_name            = aws_lambda_function.this.function_name
+  principal                = "*"
+  invoked_via_function_url = true
 }

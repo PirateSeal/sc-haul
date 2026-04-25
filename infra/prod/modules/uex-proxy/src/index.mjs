@@ -2,6 +2,7 @@ import { SSMClient, GetParameterCommand } from '@aws-sdk/client-ssm'
 
 const ssm = new SSMClient({})
 const UEX_BASE = 'https://api.uexcorp.space/2.0'
+const USER_AGENT = 'SC-Haul/0.3.0 (+https://sc-haul.tcousin.com)'
 
 // Cold-start cache: read SSM params once per Lambda container lifecycle
 let uexToken = null
@@ -24,6 +25,12 @@ async function ensureSecrets() {
 }
 
 // In-memory response cache: path+query → { body, headers, ts }
+function getHeader(headers = {}, name) {
+  const target = name.toLowerCase()
+  const entry = Object.entries(headers).find(([key]) => key.toLowerCase() === target)
+  return entry?.[1]
+}
+
 const cache = new Map()
 const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
 
@@ -36,7 +43,7 @@ export const handler = async (event) => {
   }
 
   // Reject requests not from CloudFront
-  const incomingSecret = event.headers?.['x-cf-secret']
+  const incomingSecret = getHeader(event.headers, 'x-cf-secret')
   if (incomingSecret !== cfSecret) {
     return { statusCode: 403, body: JSON.stringify({ error: 'Forbidden' }) }
   }
@@ -60,6 +67,7 @@ export const handler = async (event) => {
   const headers = {
     Accept: 'application/json',
     Authorization: `Bearer ${uexToken}`,
+    'User-Agent': USER_AGENT,
   }
   if (process.env.UEX_CLIENT_VERSION) {
     headers['X-Client-Version'] = process.env.UEX_CLIENT_VERSION
